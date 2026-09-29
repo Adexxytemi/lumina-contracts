@@ -1,11 +1,11 @@
 # Registry Events Reference
 
-Events are the integration surface for downstream consumers, serving as the interface for both `lumina-backend`'s indexer and `lumina-frontend`'s registry history view.
+Events are the integration surface for downstream consumers, serving as the interface for both `lumina-backend`s indexer and `lumina-frontend`s registry history view.
 
 ## Downstream Consumers
 
-- **Registry History (`lumina-frontend`)**: The frontend's history view rebuilds the per-contract event timeline by matching on the **first topic** (which must be the event name) and treating the **first data slot** as the subject ID (`contract_id`). Any events matching this shape will be attributed to the respective contract's history. Unknown topics will still be displayed as generic "Registry event" rows.
-- **Indexer (`lumina-backend`)**: The backend indexer discovers contracts and listens to registry events to keep its database synchronized with the on-chain manifest. It specifically looks for registration, deactivation, and metadata/category changes to maintain an up-to-date registry graph.
+- `Registry History (`lumina-frontend`)`: The frontend's history view rebuilds the per-contract event timeline by matching on the **first topic** (which must be the event name) and treating the **first data slot** as the subject ID (`contract_id`). Any events matching this shape will be attributed to the respective contract's history. Unknown topics will still be displayed as generic "Registry event" rows.
+- `Indexer (`lumina-backend`)`: The backend indexer discovers contracts and listens to registry events to keep its database synchronized with the on-chain manifest. It specifically looks for registration, deactivation, and metadata/category changes to maintain an up-to-date registry graph.
 
 ## Events
 
@@ -22,9 +22,9 @@ Events are the integration surface for downstream consumers, serving as the inte
 | `tags_updated` | `(contract_id: Address, owner: Address, tags_len: u32)` | When a contract's tags are updated by its owner. | History | `tags_are_updated_and_returned` |
 | `metadata_updated` | `(contract_id: Address, owner: Address, name: String)` | When the contract's metadata (name) is updated. | Indexer, History | `update_metadata_succeeds_with_real_owner_signature` |
 | `ownership_transferred`| `(contract_id: Address, previous_owner: Address, new_owner: Address)` | When the contract's ownership is transferred to a new address. | History | `ownership_transfer_preserves_stake_and_verification` |
-| `stake_deposited` | `(contract_id: Address, owner: Address, amount: i128, total_staked: i128)` | When the owner deposits tokens to top up their stake. | History | `stake_tops_up_an_existing_stake` |
-| `stake_withdrawn` | `(contract_id: Address, owner: Address, total_staked: i128)` | When the owner withdraws their staked tokens after deactivation. | History | `withdraw_returns_the_full_stake_once_the_owner_has_deactivated` |
-| `stake_slashed` | `(contract_id: Address, amount: i128, reason: String, treasury: Address)` | When governance slashes a contract's stake for a violation. | History | `slash_moves_stake_to_the_treasury_and_records_the_reason` |
+| `stake_deposited` | `(contract_id: Address, staker: Address, amount: i128, total_staked: i128)` | When a staker deposits tokens to back a registration. | History | `third_party_can_stake_on_be_registration` |
+| `stake_withdrawn` | `(contract_id: Address, staker: Address, amount: i128, total_staked: i128)` | When a staker withdraws their own staked tokens after deactivation. | History | `two_stakers_can_each_withdraw_their_own` |
+| `stake_slashed` | `(contract_id: Address, amount: i128, reason: String, treasury: Address)` | When governance slashes a contract's stake for a violation. Slashing is applied pro-rata across all stakers of the registration. | History | `slash_reduces_each_stake_pro_rata` |
 | `verification_set` | `(contract_id: Address, verified: bool)` | When governance grants or revokes verified status for a contract. | History | `governance_can_attest_and_later_revoke_verification` |
 | `category_pruned` | `(category: String, removed: u32)` | When dead references in a category's index are cleaned up. | | `prune_category_drops_dead_references_and_is_safe_to_repeat` |
 | `all_contracts_pruned` | `(removed: u32,)` | When dead references in the global index are cleaned up. | | `contract_count_is_live_and_total_registered_is_lifetime` |
@@ -37,3 +37,9 @@ Events are the integration surface for downstream consumers, serving as the inte
 | `owner_allowlisted` | `(owner: Address, allowed: bool)` | When governance adds or removes an owner from the allowlist. | | `owner_can_be_added_to_allowlist` |
 | `registration_rate_limit_changed` | `(limit: u32, window: u32)` | When governance updates the rate limit parameters. | | `registration_rate_limit_can_be_changed` |
 | `registration_fee_set` | `(fee: i128,)` | When governance sets a flat fee for new registrations. | | `registration_fee_can_be_set` |
+
+## Staking Policy
+
+Stake is tracked per `(registration, staker)` pair. Any address may stake on behalf of a registration, not just the registered owner. Each staker may withdraw only their own contribution. The total reported for a registration is the sum of all per-staker balances.
+
+When governance slashes a registration, the slashed amount is taken **pro-rata** across all stakers based on their current share of the total stake. This keeps the burden proportional to each staker's contribution and avoids preferentially draining one backer before another. The slashed amount is transferred to the configured treasury.

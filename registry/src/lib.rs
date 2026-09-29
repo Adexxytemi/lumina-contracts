@@ -523,6 +523,10 @@ pub enum DataKey {
     Treasury,
     /// i128 — currently staked balance for a registration.
     Stake(Address),
+    /// i128 — stake posted by one staker against one registration.
+    /// Keyed by (registration, staker) so third parties can back a
+    /// registration without owning it, and each withdraws only their own.
+    StakeOf(Address, Address),
     /// bool — governance-attested verified status.
     Verified(Address),
     /// Vec<SlashRecord> — every slash ever levied, oldest first.
@@ -573,6 +577,10 @@ pub enum DataKey {
     // ── Registry statistics ────────────────────────────────────────────────
     /// i128 — total staked across all registrations.
     TotalStaked,
+    /// Vec<Address> — insertion-ordered stakers backing one registration.
+    /// Needed to enumerate whose stake a slash takes, and to report the
+    /// per-registration total as the sum over stakers.
+    Stakers(Address),
     /// u32 — count of verified registrations.
     VerifiedCount,
 
@@ -1777,31 +1785,32 @@ impl LuminaRegistry {
     /// stake without re-registering.
     ///
     /// Additive — calling it again tops the stake up.
+    ///
+    /// Any address may stake, not just the registered owner: a backer who
+    /// wants to vouch for a project can post collateral on its behalf. Stake
+    /// is tracked per `(registration, staker)`, so each staker withdraws only
+    /// their own and the registration's total is the sum over all stakers.
     pub fn stake(
         env: Env,
-        owner: Address,
+        staker: Address,
         contract_id: Address,
         amount: i128,
     ) -> Result<(), RegistryError> {
-        owner.require_auth();
+        staker.require_auth();
 
         Self::validate_positive_amount(amount)?;
 
-        let entry: ContractEntry = env.storage().persistent()
-            .get(&DataKey::Contract(contract_id.clone()))
-            .ok_or(RegistryError::ContractNotFound)?;
-
-        if owner != entry.owner {
-            return Err(RegistryError::NotOwner);
+        if !env.storage().persistent().has(&DataKey::Contract(contract_id.clone())) {
+            return Err(RegistryError::ContractNotFound);
         }
 
         let (token_id, _) = Self::staking_config(&env)?;
 
-        // Moves real tokens into the registry's own balance. `owner` has
+        // Moves real tokens into the registry's own balance. `staker` has
         // already authorized this invocation, and the token's own
         // `from.require_auth()` runs as a sub-invocation of it.
         token::Client::new(&env, &token_id).transfer(
-            &owner,
+            &staker,
             &env.current_contract_address(),
             &amount,
         );
@@ -1809,6 +1818,15 @@ impl LuminaRegistry {
         let old_stake = Self::stake_of(&env, &contract_id);
         let staked = old_stake + amount;
         env.storage().persistent().set(&DataKey::Stake(contract_id.clone()), &staked);
+
+        let mut stakers = Self::stakers_of(&env, &contract_id);
+        if !stakers.contains(&staker) {
+            stakers.push_back(staker.clone());
+            env.storage().persistent().set(&DataKey::Stakers(contract_id.clone()), &stakers);
+        }
+        let previous = Self::stake_of_staker(&env, &contract_id, &staker);
+        env.storage().persistent()
+            .set(&DataKey::StakeOf(contract_id.clone(), staker.clone()), &(previous + amount));
 
         let total_staked: i128 = env.storage().instance().get(&DataKey::TotalStaked).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalStaked, &(total_staked + amount));
@@ -1823,7 +1841,7 @@ impl LuminaRegistry {
 
         env.events().publish(
             (Symbol::new(&env, "stake_deposited"),),
-            (contract_id, owner, amount, staked),
+            (contract_id, staker, amount, staked),
         );
 
         Ok(())
@@ -1833,7 +1851,7 @@ impl LuminaRegistry {
     ///
     /// "Good standing" is three conditions, all checked here:
     ///
-    /// 1. the caller is the registered owner;
+    /// 1. the caller has stake of their own on the registration;
     /// 2. the registration is **deactivated** — you get your collateral back
     ///    by leaving, not while still listed and benefiting from the stake;
     /// 3. no slash has landed within the last [`SLASH_LOCK_LEDGERS`] ledgers,
@@ -1843,18 +1861,15 @@ impl LuminaRegistry {
     /// Returns the amount returned to the owner.
     pub fn withdraw_stake(
         env: Env,
-        owner: Address,
+        staker: Address,
         contract_id: Address,
     ) -> Result<i128, RegistryError> {
-        owner.require_auth();
+        staker.require_auth();
 
         let entry: ContractEntry = env.storage().persistent()
             .get(&DataKey::Contract(contract_id.clone()))
             .ok_or(RegistryError::ContractNotFound)?;
 
-        if owner != entry.owner {
-            return Err(RegistryError::NotOwner);
-        }
         if entry.active {
             return Err(RegistryError::RegistrationActive);
         }
@@ -1862,7 +1877,7 @@ impl LuminaRegistry {
             return Err(RegistryError::StakeLocked);
         }
 
-        let staked = Self::stake_of(&env, &contract_id);
+        let staked = Self::stake_of_staker(&env, &contract_id, &staker);
         if staked <= 0 {
             return Err(RegistryError::InsufficientStake);
         }
@@ -1873,11 +1888,17 @@ impl LuminaRegistry {
         // its own balance by virtue of being the invoker.
         token::Client::new(&env, &token_id).transfer(
             &env.current_contract_address(),
-            &owner,
+            &staker,
             &staked,
         );
 
-        env.storage().persistent().set(&DataKey::Stake(contract_id.clone()), &0i128);
+        env.storage().persistent()
+            .set(&DataKey::StakeOf(contract_id.clone(), staker.clone()), &0i128);
+        let remaining = Self::stake_of(&env, &contract_id) - staked;
+        env.storage().persistent().set(&DataKey::Stake(contract_id.clone()), &remaining);
+        if remaining == 0 {
+            env.storage().persistent().remove(&DataKey::Stakers(contract_id.clone()));
+        }
 
         let total_staked: i128 = env.storage().instance().get(&DataKey::TotalStaked).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalStaked, &(total_staked - staked));
@@ -1892,7 +1913,7 @@ impl LuminaRegistry {
 
         env.events().publish(
             (Symbol::new(&env, "stake_withdrawn"),),
-            (contract_id, owner, staked),
+            (contract_id, staker, staked),
         );
 
         Ok(staked)
