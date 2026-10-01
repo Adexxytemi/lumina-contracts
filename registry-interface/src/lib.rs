@@ -23,7 +23,7 @@
 //!
 //! This crate is the third option: a declared trait covering the registry's
 //! read-only surface, and the [`RegistryInterfaceClient`] that
-//! [`soroban_sdk::contractclient`] generates from it.
+//! [scoroban_sdk::contractclient] generates from it.
 //!
 //! ```no_run
 //! use lumina_registry_interface::RegistryInterfaceClient;
@@ -42,9 +42,9 @@
 //! [`ContractEntry`], [`Category`], [`Reputation`] and friends are deliberately
 //! *duplicated* from `lumina-registry` rather than re-exported from it. A
 //! dependency edge on the contract crate would drag the registry's entire
-//! `#[contractimpl]` — every exported entrypoint and its spec — into every
+//! `[contractimpl]` — every exported entrypoint and its spec — into every
 //! consumer's wasm, which is both a size problem and a link problem: two
-//! `#[contractimpl]`s exporting the same symbol do not coexist. `registry-v2`
+//! `[contractimpl]` exporting the same symbol do not coexist. `registry-v2`
 //! does the same thing for the same reason, and says so at length.
 //!
 //! The duplication is a real risk — the two declarations could drift — so
@@ -479,7 +479,7 @@ NotInitialized = 3,
 /// truncated.
 pub const MAX_CATEGORIES_PER_CONTRACT: u32 = 5;
 
-/// Byte-compatible with `lumina_registry::ContractEntry`.
+/// A governance proposal.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractEntry {
@@ -592,11 +592,15 @@ pub struct Attestation {
 
 /// A governance proposal.
 #[contracttype]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Reputation {
-    /// Currently staked, withdrawable balance.
-    pub stake: i128,
-    /// Whether governance has attested this registration.
+    /// Reputation score.
+    pub score: i64,
+    /// Number of slashes levied.
+    pub slashes_count: u32,
+    /// Total amount slashed.
+    pub total_slashed: i128,
+    /// Whether governance has attested it.
     pub verified: bool,
     /// Lifetime total slashed, which unlike `stake` never goes down.
     pub slashed_total: i128,
@@ -611,11 +615,11 @@ pub struct Reputation {
 
 /// Aggregate registry counters.
 #[contracttype]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractProfile {
-    /// The base registration metadata and status.
+    /// The underlying registration.
     pub entry: ContractEntry,
-    /// The reputation and staking signal.
+    /// The reputation signal.
     pub reputation: Reputation,
     /// The contract that supersedes this one, if the owner has set one.
     pub superseded_by: Option<Address>,
@@ -667,38 +671,14 @@ pub struct ContractPage {
     pub has_more: bool,
 }
 
-/// Byte-compatible with `lumina_registry::ProposalAction`.
+/// A page of profiles with a more-flag.
 #[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub enum ProposalAction {
-    /// Deactivate the given contract on behalf of the registry (admin action).
-    Deactivate(Address),
-    /// Upgrade the contract wasm to the given hash.
-    Upgrade(soroban_sdk::BytesN<32>),
-    /// Add a new address to the admin set.
-    AddAdmin(Address),
-    /// Remove an address from the admin set.
-    RemoveAdmin(Address),
-    /// Change the approval threshold.
-    ChangeThreshold(u32),
-    /// Point staking at a token and a treasury: `(stake_token, treasury)`.
-    ConfigureStaking(Address, Address),
-    /// Attest (or revoke) verified status for a registration.
-    SetVerified(Address, bool),
-    /// Take `(contract_id, amount, reason)` of a registration's stake.
-    Slash(Address, i128, String),
-    /// Enable or disable permissioned registration.
-    SetAllowlistEnabled(bool),
-    /// Add or remove an owner from the registration allowlist.
-    SetAllowlisted(Address, bool),
-    /// Set the per-owner limit and ledger window; a zero limit disables it.
-    ConfigureRegistrationRateLimit(u32, u32),
-    /// Set the registration fee in the stake token; zero disables it.
-    SetRegistrationFee(i128),
-    /// Set the minimum stake threshold; zero disables it.
-    ConfigureMinimumStake(i128),
-    /// Withdraw from the treasury.
-    WithdrawFromTreasury(i128),
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractProfilePage {
+    /// The profiles in this page.
+    pub profiles: Vec<ContractProfile>,
+    /// Whether more entries follow.
+    pub has_more: bool,
 }
 
 /// Number of ledgers a proposal of a given action must wait before execution.
