@@ -416,27 +416,36 @@ pub enum RegistryError {
     /// The contract has no stake to withdraw.
     NoStake = 23,
     /// The stake amount is invalid.
-    InvalidStake = 24,
-    /// The slash amount is invalid.
-    InvalidSlash = 25,
-    /// The category is not recognized.
-    UnknownCategory = 26,
-    /// The category index is full.
-    CategoryIndexFull = 27,
-    /// The global index is full.
-    IndexFull = 28,
-    /// The registration rate limit was exceeded.
-    RateLimitExceeded = 29,
-    /// The owner is not allowlisted.
-    NotAllowlisted = 30,
-    /// The registration fee could not be transferred.
-    FeeTransferFailed = 31,
-    /// The proposal data is malformed.
-    InvalidProposalData = 32,
-    /// The category migration cursor is out of range.
-    InvalidCursor = 33,
-    /// The category migration would overflow the target index.
-    MigrationOverflow = 34,
+    InvalidStake = 16,
+    /// The stake is insufficient for the requested operation.
+    InsufficientStake = 17,
+    /// The stake is still inside the post-slash lock window.
+    StakeLocked = 18,
+    /// The registration is still active — deactivate before withdrawing.
+    RegistrationActive = 19,
+    /// A registration must declare at least one category.
+    NoCategories = 20,
+    /// The registration claims more categories than `MAX_CATEGORIES_PER_CONTRACT`.
+    TooManyCategories = 28,
+    /// The registration still holds stake — withdraw it before deregistering.
+    StakeNotEmpty = 21,
+    /// The registration rate limit configuration is invalid.
+    InvalidRateLimit = 22,
+    /// The owner is not allowlisted for registration.
+    NotAllowlisted = 23,
+    /// The registration rate limit has been exceeded.
+    RegistrationRateLimited = 24,
+    /// Registration fee was not paid.
+    InsufficientFee = 25,
+    /// Tag count or length exceeds bounds.
+    InvalidTags = 26,
+/// Caller is not the registered owner nor its delegated manager.
+    NotManager = 27,
+    /// A stake or slash would push the registration's balance outside the
+    /// `i128` range. Returned instead of trapping on overflow.
+    StakeOverflow = 28,
+    /// The unbonding period has not elapsed yet.
+    UnbondingNotComplete = 29,
 }
 
 /// The maximum number of categories a single registration may claim.

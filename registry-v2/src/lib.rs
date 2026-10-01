@@ -63,9 +63,9 @@ pub enum RegistryError {
     /// Referenced contract was not found.
     ContractNotFound = 4,
     /// The registry has no admin set.
-    NotInitialized   = 7,
-    /// A migration cursor or batch argument was invalid.
-    InvalidMigration = 8,
+NotInitialized   = 7,
+    /// Stake accounting would overflow i128.
+    StakeOverflow    = 8,
 }
 
 /// Byte-compatible with `lumina_registry::ContractEntry`.

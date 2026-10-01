@@ -240,7 +240,7 @@ pub enum RegistryError {
     InvalidAttestation = 27,
     /// The caller has no attestation to revoke on this registration.
     AttestationNotFound = 28,
-    /// The proposed treasury or stake-token address is itself a registered
+/// The proposed treasury or stake-token address is itself a registered
     /// contract.
     OverlappingAddress = 29,
     /// The admin set would have fewer than `MIN_ADMINS` members.
@@ -265,6 +265,14 @@ pub enum RegistryError {
     /// believes is staked, so a transfer that depends on that balance cannot
     /// proceed safely.
     ContractBalanceInsufficient = 39,
+    /// The stake arithmetic would overflow `i128`.
+    ///
+    /// Note: the workspace profile enables `overflow-checks`, so an unchecked
+    /// `+`/`-` would trap rather than wrap. That profile setting is a backstop
+    /// for arithmetic we have not audited, not the mechanism that protects
+    /// stake accounting — the stake and slash paths use explicit checked
+    /// arithmetic and return this error instead.
+    StakeOverflow       = 40,
 }
 
 // ─── Storage shapes ────────────────────────────────────────────────────────
